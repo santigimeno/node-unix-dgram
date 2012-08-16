@@ -244,6 +244,8 @@ Handle<Value> Send(const Arguments& args) {
   iovec iov;
   int fd;
   int r;
+  int retries = 0;
+  bool brk = true;
 
   assert(args.Length() == 5);
 
@@ -269,9 +271,16 @@ Handle<Value> Send(const Arguments& args) {
   msg.msg_name = reinterpret_cast<void*>(&sun);
   msg.msg_namelen = sizeof sun;
 
-  do
+  do {
     r = sendmsg(fd, &msg, 0);
-  while (r == -1 && errno == EINTR);
+    if (r == -1 && errno == EINTR) {
+        brk = false;
+        retries = 0;
+    } else if (r == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        // try 2 more times before giving up
+        brk = (++retries > 2) ? true : false;
+    }
+  } while (!brk);
 
   if (r == -1)
     SetErrno(errno);
