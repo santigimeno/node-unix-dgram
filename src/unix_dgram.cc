@@ -244,8 +244,8 @@ Handle<Value> Send(const Arguments& args) {
   iovec iov;
   int fd;
   int r;
-  int retries = 0;
-  bool brk = true;
+  int retries;
+  bool brk;
 
   assert(args.Length() == 5);
 
@@ -271,7 +271,9 @@ Handle<Value> Send(const Arguments& args) {
   msg.msg_name = reinterpret_cast<void*>(&sun);
   msg.msg_namelen = sizeof sun;
 
+  retries = 0;
   do {
+    brk = true;
     r = sendmsg(fd, &msg, 0);
     if (r == -1 && errno == EINTR) {
         brk = false;
