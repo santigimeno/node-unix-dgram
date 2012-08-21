@@ -46,8 +46,10 @@ using v8::Value;
 
 struct SocketContext {
   Persistent<Function> cb_;
+  Persistent<Function> cb2_;
   uv_poll_t handle_;
   int fd_;
+  bool send_wait;
 };
 
 typedef std::map<int, SocketContext*> watchers_t;
@@ -87,6 +89,22 @@ void SetErrno(int errorno) {
   Context::GetCurrent()->Global()->Set(errno_symbol, Integer::New(errorno));
 }
 
+void OnWriteEv(uv_poll_t* handle, int status, int events) {
+
+  HandleScope scope;
+  SocketContext* sc;
+  unsigned int argc = 1;
+  Handle<Value> argv[1] = {
+    Null()
+  };
+
+  sc = container_of(handle, SocketContext, handle_);
+
+  if (sc->send_wait) {
+    sc->send_wait = false;
+    sc->cb2_->Call(Context::GetCurrent()->Global(), argc, argv);
+  }
+}
 
 void OnRecv(uv_poll_t* handle, int status, int events) {
   HandleScope scope;
@@ -105,8 +123,8 @@ void OnRecv(uv_poll_t* handle, int status, int events) {
   buf = NULL;
   argv[0] = argv[1] = argv[2] = Null();
 
-  assert(0 == status);
-  assert(0 == (events & ~UV_READABLE));
+  // assert(0 == status);
+  // assert(0 == (events & ~UV_READABLE));
 
   iov.iov_base = scratch;
   iov.iov_len = sizeof scratch;
@@ -142,15 +160,27 @@ err:
     FatalException(tc);
 }
 
+void OnEvent(uv_poll_t* handle, int status, int events) {
 
-void StartWatcher(int fd, Handle<Value> callback) {
+  assert(0 == status);
+  assert((events & UV_READABLE) || (events & UV_WRITABLE));
+  if (events & UV_READABLE)
+    OnRecv(handle, status, events);
+
+  if (events & UV_WRITABLE)
+    OnWriteEv(handle, status, events);
+}
+
+void StartWatcher(int fd, Handle<Value> callback, Handle<Value> callback2) {
   // start listening for incoming dgrams
   SocketContext* sc = new SocketContext;
   sc->cb_ = Persistent<Function>::New(callback.As<Function>());
+  sc->cb2_ = Persistent<Function>::New(callback2.As<Function>());
   sc->fd_ = fd;
+  sc->send_wait = false;
 
   uv_poll_init(uv_default_loop(), &sc->handle_, fd);
-  uv_poll_start(&sc->handle_, UV_READABLE, OnRecv);
+  uv_poll_start(&sc->handle_, UV_READABLE | UV_WRITABLE, OnEvent);
 
   // so we can disarm the watcher when close(fd) is called
   watchers.insert(watchers_t::value_type(fd, sc));
@@ -173,18 +203,19 @@ void StopWatcher(int fd) {
 
 Handle<Value> Socket(const Arguments& args) {
   HandleScope scope;
-  Local<Value> cb;
+  Local<Value> cb, cb2;
   int protocol;
   int domain;
   int type;
   int fd;
 
-  assert(args.Length() == 4);
+  assert(args.Length() == 5);
 
   domain    = args[0]->Int32Value();
   type      = args[1]->Int32Value();
   protocol  = args[2]->Int32Value();
   cb        = args[3];
+  cb2        = args[4];
 
 #if defined(SOCK_NONBLOCK)
   type |= SOCK_NONBLOCK;
@@ -205,7 +236,7 @@ Handle<Value> Socket(const Arguments& args) {
   SetCloExec(fd);
 #endif
 
-  StartWatcher(fd, cb);
+  StartWatcher(fd, cb, cb2);
 
 out:
   return scope.Close(Integer::New(fd));
@@ -273,8 +304,17 @@ Handle<Value> Send(const Arguments& args) {
     r = sendmsg(fd, &msg, 0);
   while (r == -1 && errno == EINTR);
 
-  if (r == -1)
+  if (r == -1) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      watchers_t::iterator iter = watchers.find(fd);
+      assert(iter != watchers.end());
+
+      SocketContext* sc = iter->second;
+      sc->send_wait = true;
+    }
+
     SetErrno(errno);
+  }
 
   return scope.Close(Integer::New(r));
 }

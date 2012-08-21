@@ -37,6 +37,10 @@ function recv(status, buf) {
   this.emit('message', buf, rinfo);
 }
 
+function drain() {
+  this.emit('drain');
+}
+
 
 exports.createSocket = function(type, listener) {
   if (type == 'udp4' || type == 'udp6')
@@ -50,7 +54,7 @@ function Socket(type, listener) {
   if (type != 'unix_dgram')
     throw new Error('Unsupported socket type: ' + type);
 
-  if ((this.fd = socket(AF_UNIX, SOCK_DGRAM, 0, recv.bind(this))) == -1)
+  if ((this.fd = socket(AF_UNIX, SOCK_DGRAM, 0, recv.bind(this), drain.bind(this))) == -1)
     throw errnoException(errno, 'socket');
 
   this.type = type;
