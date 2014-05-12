@@ -317,15 +317,15 @@ NAN_METHOD(Send) {
   while (r == -1 && errno == EINTR);
 
   err = 0;
-  if (r == -1)
+  if (r == -1) {
     err = -errno;
-
-  if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-    watchers_t::iterator iter = watchers.find(fd);
-    assert(iter != watchers.end());
-    SocketContext* sc = iter->second;
-    uv_poll_start(&sc->handle_, UV_READABLE | UV_WRITABLE, OnEvent);
-    err = 1;
+    if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+      watchers_t::iterator iter = watchers.find(fd);
+      assert(iter != watchers.end());
+      SocketContext* sc = iter->second;
+      uv_poll_start(&sc->handle_, UV_READABLE | UV_WRITABLE, OnEvent);
+      err = 1;
+    }
   }
 
   NanReturnValue(NanNew<Integer>(err));
