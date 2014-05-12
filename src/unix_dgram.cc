@@ -116,8 +116,8 @@ void OnRecv(SocketContext* sc) {
 
   TryCatch tc;
   NanNew(sc->recv_cb_)->Call(NanGetCurrentContext()->Global(),
-                        sizeof(argv) / sizeof(argv[0]),
-                        argv);
+                             sizeof(argv) / sizeof(argv[0]),
+                             argv);
 
   if (tc.HasCaught())
     FatalException(tc);
@@ -127,20 +127,20 @@ void OnWritable(SocketContext* sc) {
   TryCatch tc;
   NanNew(sc->writable_cb_)->Call(NanGetCurrentContext()->Global(), 0, 0);
   uv_poll_start(&sc->handle_, UV_READABLE, OnEvent);
-  if (tc.HasCaught()) 
+  if (tc.HasCaught())
     FatalException(tc);
 }
 
 void OnEvent(uv_poll_t* handle, int status, int events) {
   assert(0 == status);
-  assert((0 == (events & ~UV_READABLE)) || (0 == (events & ~UV_WRITABLE)));
+  assert(0 == (events & ~(UV_READABLE | UV_WRITABLE)));
   SocketContext* sc = container_of(handle, SocketContext, handle_);
-  if ((events & ~UV_READABLE) == 0) {
+  if (events & UV_READABLE)
     OnRecv(sc);
-  } else {
+
+  if (events & UV_WRITABLE)
     OnWritable(sc);
-  }
-}  
+}
 
 void StartWatcher(int fd, Handle<Value> recv_cb, Handle<Value> writable_cb) {
   // start listening for incoming dgrams
@@ -188,11 +188,11 @@ NAN_METHOD(Socket) {
 
   assert(args.Length() == 5);
 
-  domain    = args[0]->Int32Value();
-  type      = args[1]->Int32Value();
-  protocol  = args[2]->Int32Value();
-  recv_cb        = args[3];
-  writable_cb        = args[4];
+  domain      = args[0]->Int32Value();
+  type        = args[1]->Int32Value();
+  protocol    = args[2]->Int32Value();
+  recv_cb     = args[3];
+  writable_cb = args[4];
 
 #if defined(SOCK_NONBLOCK)
   type |= SOCK_NONBLOCK;
