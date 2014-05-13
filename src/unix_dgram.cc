@@ -125,8 +125,8 @@ void OnRecv(SocketContext* sc) {
 
 void OnWritable(SocketContext* sc) {
   TryCatch tc;
-  NanNew(sc->writable_cb_)->Call(NanGetCurrentContext()->Global(), 0, 0);
   uv_poll_start(&sc->handle_, UV_READABLE, OnEvent);
+  NanNew(sc->writable_cb_)->Call(NanGetCurrentContext()->Global(), 0, 0);
   if (tc.HasCaught())
     FatalException(tc);
 }
